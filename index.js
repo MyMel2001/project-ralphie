@@ -87,7 +87,7 @@ async function setupMCP(serverPaths) {
   const tools = [...nativeToolDefinitions]; // Start with Native Tools
   const clients = [];
   for (const serverPath of serverPaths) {
-    const transport = new StdioClientTransport({ command: 'node', args: [serverPath] });
+    const transport = new StdioClientTransport({ command: 'npx', args: [serverPath] });
     const client = new Client({ name: "Ralphie-Host", version: "1.0.0" }, { capabilities: {} });
     await client.connect(transport);
     const { tools: serverTools } = await client.listTools();
