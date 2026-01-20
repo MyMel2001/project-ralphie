@@ -66,7 +66,7 @@ For non-Node.js tasks (e.g., Python), the generated code uses Node's ```child_pr
 
 ### Example 1: Simple Node.js Task
 ```bash
-node index.js --model ministral-3:8b --host http://192.168.50.135:11434 "Echo out 'Hello, World!'."
+node index.js --model ministral-3:8b --host http://192.168.50.135:11434 "Echo out 'Hello, World\!'."
 ```
 
 Expected: Generates and runs ```console.log('Hello, World!');```.
