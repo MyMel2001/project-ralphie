@@ -12,7 +12,7 @@ Key features:
 
 ## The Basic Logic Flowchart
 
-![A flowchart of our loop](https://github.com/mymel2001-holder/project-ralphie/raw/refs/heads/main/codename%20ralphie.svg)
+![A flowchart of our loop](https://github.com/MyMel2001/project-ralphie/raw/refs/heads/main/codename%20ralphie.svg)
 
 ## Installation
 
