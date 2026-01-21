@@ -1,4 +1,4 @@
-# Codename Ralphie
+# Codename Sammy
 
 ## Overview
 
@@ -9,8 +9,9 @@ Key features:
 - Customizable Ollama model and host.
 - Adjustable context length (default: 42000).
 - Strict output formatting from the LLM to avoid extraneous text.
+- A REPL
 
-## The Basic Logic Flowchart
+## The Basic Logic Flowchart (What we started with)
 
 ![A flowchart of our loop](https://github.com/MyMel2001/project-ralphie/raw/refs/heads/main/codename%20ralphie.svg)
 
