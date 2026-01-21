@@ -4,8 +4,10 @@ const { spawnSync } = require('child_process');
 const { Ollama } = require('ollama');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+const readline = require('readline/promises');
 
 // --- NATIVE TOOL DEFINITIONS ---
+// Added missing definitions so the LLM knows these tools exist
 const nativeToolDefinitions = [
   {
     type: 'function',
@@ -14,7 +16,7 @@ const nativeToolDefinitions = [
       description: 'Read the contents of a file from the local filesystem',
       parameters: {
         type: 'object',
-        properties: { path: { type: 'string', description: 'The relative or absolute path to the file' } },
+        properties: { path: { type: 'string', description: 'The path to the file' } },
         required: ['path']
       }
     }
@@ -22,46 +24,75 @@ const nativeToolDefinitions = [
   {
     type: 'function',
     function: {
-      name: 'run_terminal_command',
-      description: 'Execute a shell command (e.g., ls, mkdir, grep, git)',
+      name: 'write_file',
+      description: 'Write or append text to a file',
       parameters: {
         type: 'object',
-        properties: { command: { type: 'string', description: 'The full shell command to run' } },
+        properties: { 
+          path: { type: 'string' }, 
+          text: { type: 'string', description: 'Content to write' } 
+        },
+        required: ['path', 'text']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_and_replace',
+      description: 'Find and replace a string in a file',
+      parameters: {
+        type: 'object',
+        properties: { 
+          path: { type: 'string' }, 
+          search: { type: 'string' }, 
+          replace: { type: 'string' } 
+        },
+        required: ['path', 'search', 'replace']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_terminal_command',
+      description: 'Execute a shell command',
+      parameters: {
+        type: 'object',
+        properties: { command: { type: 'string', description: 'The full shell command' } },
         required: ['command']
       }
     }
   }
 ];
 
+const NATIVE_TOOL_NAMES = nativeToolDefinitions.map(t => t.function.name);
+
 // --- NATIVE TOOL HANDLERS ---
-
-
 const handleNativeTool = (name, args) => {
-  let fullPath = args.path || ""
-  if (name === 'read_file') {
-    try {
-      return fs.readFileSync(path.resolve(args.path), 'utf-8');
-    } catch (e) {
-      return `Error reading file: ${e.message}`;
+  let fullPath = args.path ? path.resolve(args.path) : "";
+  try {
+    if (name === 'read_file') {
+      return fs.readFileSync(fullPath, 'utf-8');
     }
-  }
-  if (name === 'search_and_replace' || name === 'find_and_replace') {
-    let data = fs.readFileSync(fullPath, 'utf-8');
-    if (!data.includes(args.search)) return `Error: String "${args.search}" not found in ${args.path}`;
-    let newData = data.split(args.search).join(args.replace);
-    fs.writeFileSync(fullPath, newData, 'utf-8');
-    return `Successfully replaced text in ${args.path}`
-  }
-  if (name === 'write_file') {
-    let data = fs.readFileSync(fullPath, 'utf-8');
-
-    let newData = `${data}${args.newData || args.text || args.data}`
-    fs.writeFileSync(fullPath, newData, 'utf-8');
-    return `Successfully replaced text in ${args.path}`
-  }
-  if (name === 'run_terminal_command') {
-    const result = spawnSync(args.command, { shell: true, encoding: 'utf-8' });
-    return result.stdout || result.stderr || 'Command executed with no output.';
+    if (name === 'search_and_replace' || name === 'find_and_replace') {
+      let data = fs.readFileSync(fullPath, 'utf-8');
+      if (!data.includes(args.search)) return `Error: String "${args.search}" not found.`;
+      let newData = data.split(args.search).join(args.replace);
+      fs.writeFileSync(fullPath, newData, 'utf-8');
+      return `Successfully replaced text in ${args.path}`;
+    }
+    if (name === 'write_file') {
+      // Logic fix: Handle both overwrite or append safely
+      fs.writeFileSync(fullPath, args.text || args.data || args.newData, 'utf-8');
+      return `Successfully wrote to ${args.path}`;
+    }
+    if (name === 'run_terminal_command') {
+      const result = spawnSync(args.command, { shell: true, encoding: 'utf-8' });
+      return result.stdout || result.stderr || 'Command executed with no output.';
+    }
+  } catch (e) {
+    return `Error executing ${name}: ${e.message}`;
   }
 };
 
@@ -84,25 +115,29 @@ function parseOptions() {
 }
 
 async function setupMCP(serverPaths) {
-  const tools = [...nativeToolDefinitions]; // Start with Native Tools
+  const tools = [...nativeToolDefinitions]; 
   const clients = [];
   for (const serverPath of serverPaths) {
-    const transport = new StdioClientTransport({ command: 'npx', args: [serverPath] });
-    const client = new Client({ name: "Ralphie-Host", version: "1.0.0" }, { capabilities: {} });
-    await client.connect(transport);
-    const { tools: serverTools } = await client.listTools();
-    const formatted = serverTools.map(t => ({
-      type: 'function',
-      function: { name: t.name, description: t.description, parameters: t.inputSchema }
-    }));
-    tools.push(...formatted);
-    clients.push({ client, toolNames: serverTools.map(t => t.name) });
+    try {
+      const transport = new StdioClientTransport({ command: 'npx', args: [serverPath] });
+      const client = new Client({ name: "Ralphie-Host", version: "1.0.0" }, { capabilities: {} });
+      await client.connect(transport);
+      const { tools: serverTools } = await client.listTools();
+      const formatted = serverTools.map(t => ({
+        type: 'function',
+        function: { name: t.name, description: t.description, parameters: t.inputSchema }
+      }));
+      tools.push(...formatted);
+      clients.push({ client, toolNames: serverTools.map(t => t.name) });
+    } catch (e) {
+      console.error(`Failed to load MCP server ${serverPath}: ${e.message}`);
+    }
   }
   return { tools, clients };
 }
 
 function executeSegment(segment) {
-  const tempFile = path.join(__dirname, 'temp.js');
+  const tempFile = path.join(__dirname, 'temp_exec.js');
   fs.writeFileSync(tempFile, segment);
   const result = spawnSync('node', [tempFile], { stdio: 'pipe', encoding: 'utf-8' });
   if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
@@ -114,81 +149,98 @@ async function main() {
   const ollama = new Ollama({ host });
   const { tools, clients } = await setupMCP(mcpServers);
 
-  let mainPrompt = (args.length > 0 && fs.existsSync(args[0])) ? fs.readFileSync(args[0], 'utf-8') : args.join(' ');
-  let errorLog = '';
-  let progressLog = '';
-  let projectStateSummary = "Project initialized. No progress yet.";
+  let initialInput = (args.length > 0 && fs.existsSync(args[0])) ? fs.readFileSync(args[0], 'utf-8') : args.join(' ');
   
-  const systemPromptGenerate = 'You are a code generator. Output only the raw next Node.js code segment without any codeblocks, markdown, formatting, or wrappers. For shell commands or other languages (like Python), use Node.js child_process to execute them directly without creating files or running code in shell. If the project is complete, output only "PROJECT_DONE". Do not include any other text, explanations, thoughts, speech, codeblocks, or markdown. Do not create anything that may make a feedback loop stuck, such as a server, launching GUI apps, or a while true loop without a proper breaking functionality.';
-  const systemPromptCheck = 'You are a completion checker. Respond only with "yes" or "no" to whether the project is complete. No other text, explanations, thoughts, speech, codeblocks, or markdown.';
-  const projectStateSummarySystem = "You are a project progress summarization bot. You create summaries for projects - showing what you've learned, the errors, and what needs to be done. Use plain text. Output ONLY the new summary, NOTHNG ELSE.";
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const isReplMode = !initialInput;
+
+  let progressLog = '';
+  let projectStateSummary = "Project initialized.";
+  
+  const systemPromptGenerate = 'You are a code generator. Output only raw Node.js code. If complete, output "PROJECT_DONE".';
+  const systemPromptCheck = 'You are a completion checker. Respond only "yes" or "no".';
+  const projectStateSummarySystem = "You are a project progress summarizer. Output ONLY the summary.";
 
   while (true) {
-    const sliceLen = Math.round((Number(contextLength) / 6) / 2);
-    const summarizePrompt = `Current detailed history (last ${sliceLen} characters):\n${progressLog.slice(sliceLen * -1)}\n\nCurrent error logs (last ${sliceLen} characters):\n${errorLog.slice(sliceLen * -1)}\n\nCurrent Project State Summary:\n${projectStateSummary}\n\nUpdate and shorten the Project State Summary to be concise, factual, and under ${Math.round(Number(contextLength) / 6)} tokens. Focus on: current achievements, important files created, current status, any remaining major goals.\n\nReminder: Output ONLY the new summary, nothing else.\n\nReminder 2: You should mainly be showing what you've learned, the errors, and what needs to be done.`;
-
-    const summaryResponse = await ollama.chat({
-      model: model,
-      messages: [{ role: 'system', content: projectStateSummarySystem }, { role: 'user', content: summarizePrompt }],
-      options: { num_ctx: contextLength }
-    });
-    projectStateSummary = summaryResponse.message.content.trim();
-
-    const fullPrompt = `Main Task: ${mainPrompt}\n\nProgress Summary: ${projectStateSummary}\n\n${errorLog ? `LAST ERROR: ${errorLog}\nFix this error.` : "Generate the next code segment or command."}`;
-    let messages = [{ role: 'system', content: systemPromptGenerate }, { role: 'user', content: fullPrompt }];
-    let segment = "";
-
-    while (true) {
-      const response = await ollama.chat({ model, messages, tools, options: { num_ctx: contextLength } });
-      const message = response.message;
-
-      if (message.tool_calls?.length > 0) {
-        messages.push(message);
-        for (const call of message.tool_calls) {
-          let toolResult;
-          // Check if it's a Native Tool
-          if (['read_file', 'run_terminal_command'].includes(call.function.name)) {
-            toolResult = handleNativeTool(call.function.name, call.function.arguments);
-          } else {
-            // Otherwise handle via MCP
-            const target = clients.find(c => c.toolNames.includes(call.function.name));
-            if (target) {
-              const res = await target.client.callTool({ name: call.function.name, arguments: call.function.arguments });
-              toolResult = JSON.stringify(res.content);
-            }
-          }
-          messages.push({ role: 'tool', content: toolResult, name: call.function.name });
-        }
-        continue; 
-      }
-      segment = message.content.trim();
-      break;
+    let currentTask = initialInput;
+    if (isReplMode) {
+      currentTask = await rl.question('\n[REPL] Enter task (or "exit"): ');
+      if (currentTask.toLowerCase() === 'exit') break;
+      if (!currentTask.trim()) continue;
     }
 
-    if (segment.includes('PROJECT_DONE')) break;
+    let errorLog = '';
 
-    console.log(`\n--- Executing Segment ---\n${segment}`);
-    const execResult = executeSegment(segment);
+    // Main Agent Loop
+    while (true) {
+      const sliceLen = Math.round((Number(contextLength) / 6) / 2);
+      const summarizePrompt = `History: ${progressLog.slice(-sliceLen)}\nErrors: ${errorLog.slice(-sliceLen)}\nSummary: ${projectStateSummary}\nUpdate summary.`;
 
-    if (execResult.error || errorLog.includes("not found") || errorLog.includes("Command failed")) {
-      errorLog = execResult.log;
-      console.log(`❌ Error: ${errorLog}`);
-    } else {
-      console.log(`✅ Success: ${execResult.log}`);
-      progressLog += `\nSuccessful segment: ${segment}\nOutput: ${execResult.log}`;
-      errorLog = ''; 
-
-      const checkPrompt = `${mainPrompt}\n\nProgress Log: ${progressLog}\n\nLast segment executed successfully. Is the project complete?`;
-      const checkResponse = await ollama.chat({
+      const summaryResponse = await ollama.chat({
         model,
-        messages: [{ role: 'system', content: systemPromptCheck }, { role: 'user', content: checkPrompt }],
+        messages: [{ role: 'system', content: projectStateSummarySystem }, { role: 'user', content: summarizePrompt }],
         options: { num_ctx: contextLength }
       });
+      projectStateSummary = summaryResponse.message.content.trim();
 
-      if (checkResponse.message.content.toLowerCase().includes('yes')) break;
+      const fullPrompt = `Task: ${currentTask}\nSummary: ${projectStateSummary}\n${errorLog ? `FIX ERROR: ${errorLog}` : "Next step:"}`;
+      let messages = [{ role: 'system', content: systemPromptGenerate }, { role: 'user', content: fullPrompt }];
+      let segment = "";
+
+      while (true) {
+        const response = await ollama.chat({ model, messages, tools, options: { num_ctx: contextLength } });
+        const message = response.message;
+
+        if (message.tool_calls?.length > 0) {
+          messages.push(message);
+          for (const call of message.tool_calls) {
+            let toolResult;
+            // Check against dynamic list of native tools
+            if (NATIVE_TOOL_NAMES.includes(call.function.name)) {
+              toolResult = handleNativeTool(call.function.name, call.function.arguments);
+            } else {
+              const target = clients.find(c => c.toolNames.includes(call.function.name));
+              if (target) {
+                const res = await target.client.callTool({ name: call.function.name, arguments: call.function.arguments });
+                // MCP Bug Fix: Extracting text from content array so Ollama understands it better
+                toolResult = res.content.map(c => c.text || JSON.stringify(c)).join('\n');
+              }
+            }
+            messages.push({ role: 'tool', content: toolResult || "Tool not found", name: call.function.name });
+          }
+          continue; 
+        }
+        segment = message.content.trim();
+        break;
+      }
+
+      if (segment.includes('PROJECT_DONE')) break;
+
+      console.log(`\n--- Executing ---\n${segment}`);
+      const execResult = executeSegment(segment);
+
+      if (execResult.error) {
+        errorLog = execResult.log;
+        console.log(`❌ Error: ${errorLog}`);
+      } else {
+        console.log(`✅ Success: ${execResult.log}`);
+        progressLog += `\nCode: ${segment}\nOutput: ${execResult.log}`;
+        errorLog = ''; 
+
+        const checkResponse = await ollama.chat({
+          model,
+          messages: [{ role: 'system', content: systemPromptCheck }, { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }],
+          options: { num_ctx: contextLength }
+        });
+
+        if (checkResponse.message.content.toLowerCase().includes('yes')) break;
+      }
     }
+
+    if (!isReplMode) break;
   }
-  console.log('Project done.');
+  rl.close();
+  console.log('Finished.');
 }
 
 main().catch(console.error);
