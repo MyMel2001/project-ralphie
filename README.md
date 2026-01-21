@@ -10,6 +10,8 @@ Key features:
 - Adjustable context length (default: 42000).
 - Strict output formatting from the LLM to avoid extraneous text.
 - A REPL
+- MCP support
+- Advanced summary technology
 
 ## The Basic Logic Flowchart (Where it all started)
 
