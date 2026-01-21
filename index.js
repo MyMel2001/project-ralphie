@@ -177,7 +177,7 @@ async function main() {
       // Simple Chat Mode
       const chatResponse = await ollama.chat({
         model,
-        messages: [{ role: 'system', content: "You are a helpful assistant. Your name is 'Sammy'. Your pronouns are 'per/pers'." }, { role: 'user', content: currentTask }]
+        messages: [{ role: 'system', content: "You are a helpful assistant. Your name is 'Sammy'. Your pronouns are 'per/pers/perself'." }, { role: 'user', content: currentTask }]
       });
       console.log(`\n${chatResponse.message.content}`);
       if (!isReplMode) break;
