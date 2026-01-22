@@ -292,6 +292,7 @@ async function main() {
             { role: 'system', content: systemPromptCheck },
             { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
           ]
+         });
 
           const checkMessage = checkResponse.message;
 
