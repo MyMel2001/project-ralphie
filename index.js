@@ -287,20 +287,28 @@ async function main() {
 
       const isExecutionTool = previousToolName.includes('execute') || previousToolName.includes('run');
       const hasNoError = !previousToolName.includes('Error');
-      const highGoods = goods > 38;
 
+      // 1. Check for errors first
       if (toolResult.includes('Error')) {
         errorLog = toolResult;
         console.log(`❌ Error: ${errorLog}`);
-      } else if ((isExecutionTool && hasNoError) || highGoods) {
-        console.log(`✅ Success: ${toolResult}`);
-        progressLog += `\nCode: ${segment}\nOutput: ${toolResult}`;
-        errorLog = '';
-        await shutdownMCP(clients); // FIX: clean shutdown
-        process.exit(0)
-      } else {
+      } 
+      // 2. Check if the WHOLE TASK is done (High Goods)
+      else if (goods > 38) {
+        console.log(`🎯 Task Complete: High goods threshold met.`);
+        await shutdownMCP(clients);
+        process.exit(0);
+      } 
+      // 3. Handle a successful tool execution without exiting the whole script
+      else if (isExecutionTool && hasNoError) {
+          console.log(`🎯 Task Complete: Tested OK.`);
+          await shutdownMCP(clients);
+          process.exit(0); 
+      } 
+      // 4. Default state
+      else {
         console.log(`✅ Good so far...`);
-        goods = goods + 1
+        goods++;
       }
 
         while (true) {
