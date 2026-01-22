@@ -298,7 +298,7 @@ async function main() {
       if (toolResult && toolResult.includes('Error')) {
         errorLog = toolResult;
         console.log(`❌ Error: ${errorLog}`);
-      } else if (goods > 38) {
+      } else if (goods > 255) {
         console.log(`🎯 Task Complete: High goods threshold met.`);
         break;
       } else if (isExecutionTool && hasNoError) {
