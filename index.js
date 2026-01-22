@@ -192,18 +192,10 @@ async function main() {
   let progressLog = '';
   let projectStateSummary = "No active task.";
 
-  const systemPromptRouter =
-    'You are a router. Determine if the user request is a "CHAT" or an "ACTION". Respond ONLY with the word "CHAT" or "ACTION".';
-
-  const systemPromptGenerate =
-    'You are a code generator. Output only the raw next Node.js code segment. If the user asks for something that involves a file or files, use *NodeJS code to create the file(s).*  If the project is complete, output only "PROJECT_DONE".';
-
-  const systemPromptCheck =
-    'You are a completion checker. Respond only with "yes" or "no".';
-
-  const projectStateSummarySystem =
-    "You are a project progress summarization bot. Output ONLY the new summary.";
-
+  const systemPromptRouter = 'You are a router. Determine if the user request is a "CHAT" (a question, greeting, or explanation request, etc) or an "ACTION" (such as requires writing code, running commands, or multi-step execution). Respond ONLY with the word "CHAT" or "ACTION".';
+  const systemPromptGenerate = 'You are a code generator. Output only the raw next Node.js code segment without any codeblocks, markdown, formatting, or wrappers. For shell commands or other languages (like Python), use Node.js child_process to execute them directly without creating files or running code in shell. That is to say, create or execute code files unless absolutely needed for the project - such as if the user asks you to make or modify some code. If the project is complete, output only "PROJECT_DONE". Do not include any other text, explanations, thoughts, speech, codeblocks, or markdown. Do not create anything that may make a feedback loop stuck, such as a server, launching GUI apps, or a while true loop without a proper breaking functionality. If you test something to prevent bugs, please execute it for 60 seconds, quit if still open, and read error output - fixing bugs according to said error output.';
+  const systemPromptCheck = 'You are a completion checker. Respond only with "yes" or "no" to whether the project is complete. No other text, explanations, thoughts, speech, codeblocks, or markdown.';
+  const projectStateSummarySystem = "You are a project progress summarization bot. You create summaries for projects - showing what you've learned, the errors, and what needs to be done. Use plain text. Output ONLY the new summary, NOTHNG ELSE.";
   while (true) {
     let currentTask = initialInput;
 
