@@ -288,7 +288,7 @@ async function main() {
       if (toolResult.includes('Error')) {
         errorLog = toolResult;
         console.log(`❌ Error: ${errorLog}`);
-      } else if ((((previousToolName.includes('execute') || previousToolName.includes('run')) && !previousToolName.includes('Error')) || goods > 38) {
+      } else if (((previousToolName.includes('execute') || previousToolName.includes('run')) && !previousToolName.includes('Error')) || goods > 38) {
         console.log(`✅ Success: ${toolResult}`);
         progressLog += `\nCode: ${segment}\nOutput: ${toolResult}`;
         errorLog = '';
