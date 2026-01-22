@@ -29,8 +29,7 @@ const nativeToolDefinitions = [
         type: 'object',
         properties: {
           path: { type: 'string' },
-          text: { type: 'string', description: 'Content to write' },
-          append: { type: 'boolean', description: 'If true, append instead of overwrite', default: false }
+          text: { type: 'string', description: 'Content to write' }
         },
         required: ['path', 'text']
       }
@@ -69,12 +68,13 @@ const nativeToolDefinitions = [
 const NATIVE_TOOL_NAMES = nativeToolDefinitions.map(t => t.function.name);
 
 const handleNativeTool = (name, args) => {
+  // FIX: resolve paths relative to the directory the command was run in
   let fullPath = args.path ? path.resolve(process.cwd(), args.path) : "";
 
   try {
     if (name === 'read_file') return fs.readFileSync(fullPath, 'utf-8');
 
-    if (name === 'search_and_replace') {
+    if (name === 'search_and_replace' || name === 'find_and_replace') {
       let data = fs.readFileSync(fullPath, 'utf-8');
       if (!data.includes(args.search)) return `Error: String "${args.search}" not found.`;
       let newData = data.split(args.search).join(args.replace);
@@ -83,13 +83,8 @@ const handleNativeTool = (name, args) => {
     }
 
     if (name === 'write_file') {
-      if (args.append) {
-        fs.appendFileSync(fullPath, args.text, 'utf-8');
-        return `Successfully appended to ${args.path}`;
-      } else {
-        fs.writeFileSync(fullPath, args.text, 'utf-8');
-        return `Successfully wrote to ${args.path}`;
-      }
+      fs.writeFileSync(fullPath, args.text || args.data || args.newData, 'utf-8');
+      return `Successfully wrote to ${args.path}`;
     }
 
     if (name === 'run_terminal_command') {
@@ -97,7 +92,7 @@ const handleNativeTool = (name, args) => {
         shell: true,
         encoding: 'utf-8',
         timeout: 30000,
-        cwd: process.cwd()
+        cwd: process.cwd() // FIX: respect current working directory
       });
       return result.stdout || result.stderr || 'Command executed (no output).';
     }
@@ -291,13 +286,13 @@ async function main() {
         errorLog = '';
 
         while (true) {
-          const checkResponse = await ollama.chat({
+         const checkResponse = await ollama.chat({
           model,
           messages: [
             { role: 'system', content: systemPromptCheck },
             { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
           ]
-          });
+
           const checkMessage = checkResponse.message;
 
           if (checkMessage.tool_calls?.length > 0) {
