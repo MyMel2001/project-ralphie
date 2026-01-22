@@ -108,9 +108,9 @@ const handleNativeTool = (name, args) => {
 
 function parseOptions() {
   let args = process.argv.slice(2);
-  let model = 'llama3'; // Changed default model to a stable, widely available one
+  let model = 'ministral-3:8b';
   let host = 'http://localhost:11434';
-  let contextLength = 42000;
+  let contextLength = 8192; // Reduced default context length for stability
   let mcpServers = [];
   let i = 0;
 
@@ -205,7 +205,8 @@ async function main() {
         messages: [
           { role: 'system', content: systemPromptRouter },
           { role: 'user', content: currentTask }
-        ]
+        ],
+        options: { num_ctx: contextLength } // Ensure options are set
       });
 
       const isAction = routeResponse.message.content.includes("ACTION");
@@ -216,7 +217,8 @@ async function main() {
           messages: [
             { role: 'system', content: "You are a helpful assistant named Sammy." },
             { role: 'user', content: currentTask }
-          ]
+          ],
+          options: { num_ctx: contextLength }
         });
 
         console.log(`\n${chatResponse.message.content}`);
@@ -319,7 +321,8 @@ async function main() {
           messages: [
             { role: 'system', content: systemPromptCheck },
             { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
-          ]
+          ],
+          options: { num_ctx: contextLength }
         });
 
         if (checkResponse.message.content.toLowerCase().includes('yes')) break;
@@ -329,7 +332,7 @@ async function main() {
     } catch (err) {
       console.error(`Error in processing: ${err.message}`);
       if (err.message.includes('unexpected end of JSON input')) {
-        console.log('This error often occurs if the Ollama server is not running or the model is not available. Ensure Ollama is installed and running with "ollama serve", and try pulling the model with "ollama pull ' + model + '". Also, check if your Ollama version is up to date.');
+        console.log('This error often occurs if the Ollama server is overloaded, the model does not support the requested context length, or there is a compatibility issue. Try reducing --context-length (default now 8192), ensure Ollama is running with "ollama serve", and verify the model supports tools. Also, check Ollama logs for more details.');
       }
     }
   }
