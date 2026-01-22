@@ -29,7 +29,8 @@ const nativeToolDefinitions = [
         type: 'object',
         properties: {
           path: { type: 'string' },
-          text: { type: 'string', description: 'Content to write' }
+          text: { type: 'string', description: 'Content to write' },
+          append: { type: 'boolean', description: 'If true, append instead of overwrite', default: false }
         },
         required: ['path', 'text']
       }
@@ -68,13 +69,12 @@ const nativeToolDefinitions = [
 const NATIVE_TOOL_NAMES = nativeToolDefinitions.map(t => t.function.name);
 
 const handleNativeTool = (name, args) => {
-  // FIX: resolve paths relative to the directory the command was run in
   let fullPath = args.path ? path.resolve(process.cwd(), args.path) : "";
 
   try {
     if (name === 'read_file') return fs.readFileSync(fullPath, 'utf-8');
 
-    if (name === 'search_and_replace' || name === 'find_and_replace') {
+    if (name === 'search_and_replace') {
       let data = fs.readFileSync(fullPath, 'utf-8');
       if (!data.includes(args.search)) return `Error: String "${args.search}" not found.`;
       let newData = data.split(args.search).join(args.replace);
@@ -83,8 +83,13 @@ const handleNativeTool = (name, args) => {
     }
 
     if (name === 'write_file') {
-      fs.writeFileSync(fullPath, args.text || args.data || args.newData, 'utf-8');
-      return `Successfully wrote to ${args.path}`;
+      if (args.append) {
+        fs.appendFileSync(fullPath, args.text, 'utf-8');
+        return `Successfully appended to ${args.path}`;
+      } else {
+        fs.writeFileSync(fullPath, args.text, 'utf-8');
+        return `Successfully wrote to ${args.path}`;
+      }
     }
 
     if (name === 'run_terminal_command') {
@@ -92,7 +97,7 @@ const handleNativeTool = (name, args) => {
         shell: true,
         encoding: 'utf-8',
         timeout: 30000,
-        cwd: process.cwd() // FIX: respect current working directory
+        cwd: process.cwd()
       });
       return result.stdout || result.stderr || 'Command executed (no output).';
     }
@@ -157,6 +162,7 @@ async function shutdownMCP(clients) {
 }
 
 async function main() {
+  let goods = 0
   const { args, model, host, contextLength, mcpServers } = parseOptions();
   const ollama = new Ollama({ host });
   const { tools, clients } = await setupMCP(mcpServers);
@@ -235,17 +241,19 @@ async function main() {
         { role: 'user', content: fullPrompt }
       ];
 
-           while (true) {
+      while (true) {
         const response = await ollama.chat({ model, messages, tools, options: { num_ctx: contextLength } });
         const message = response.message;
+        let toolResult;
+        let previousToolName;
 
         if (message.tool_calls?.length > 0) {
           messages.push(message);
 
           for (const call of message.tool_calls) {
-            let toolResult;
 
             if (NATIVE_TOOL_NAMES.includes(call.function.name)) {
+              previousToolName = call.function.name
               console.log(`\n--- Executing Action ---\n${call.function.name}`);
               toolResult = handleNativeTool(call.function.name, call.function.arguments);
             } else {
@@ -280,20 +288,25 @@ async function main() {
       if (toolResult.includes('Error')) {
         errorLog = toolResult;
         console.log(`❌ Error: ${errorLog}`);
-      } else {
+      } else if ((((previousToolName.includes('execute') || previousToolName.includes('run')) && !previousToolName.includes('Error')) || goods > 38) {
         console.log(`✅ Success: ${toolResult}`);
         progressLog += `\nCode: ${segment}\nOutput: ${toolResult}`;
         errorLog = '';
+        await shutdownMCP(clients); // FIX: clean shutdown
+        process.exit(0)
+      } else {
+        console.log(`✅ Good so far...`);
+        goods = goods + 1
+      }
 
         while (true) {
-         const checkResponse = await ollama.chat({
+          const checkResponse = await ollama.chat({
           model,
           messages: [
             { role: 'system', content: systemPromptCheck },
             { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
           ]
-         });
-
+          });
           const checkMessage = checkResponse.message;
 
           if (checkMessage.tool_calls?.length > 0) {
@@ -338,6 +351,7 @@ async function main() {
 
   rl.close();
   await shutdownMCP(clients); // FIX: clean shutdown
+  process.exit(0)
   console.log('Session closed.');
 }
 
