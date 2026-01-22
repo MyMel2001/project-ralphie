@@ -68,7 +68,6 @@ const nativeToolDefinitions = [
 const NATIVE_TOOL_NAMES = nativeToolDefinitions.map(t => t.function.name);
 
 const handleNativeTool = (name, args) => {
-  // FIX: resolve paths relative to the directory the command was run in
   let fullPath = args.path ? path.resolve(process.cwd(), args.path) : "";
 
   try {
@@ -92,7 +91,7 @@ const handleNativeTool = (name, args) => {
         shell: true,
         encoding: 'utf-8',
         timeout: 30000,
-        cwd: process.cwd() // FIX: respect current working directory
+        cwd: process.cwd()
       });
       return result.stdout || result.stderr || 'Command executed (no output).';
     }
@@ -146,34 +145,12 @@ async function setupMCP(serverPaths) {
   return { tools, clients };
 }
 
-// FIX: explicit MCP shutdown so Node can exit cleanly
 async function shutdownMCP(clients) {
   for (const { client } of clients) {
     try {
       await client.close();
     } catch {}
   }
-}
-
-function executeSegment(segment) {
-  // FIX: temp file in current working directory
-  const tempFile = path.join(process.cwd(), `temp_exec_${Date.now()}.js`);
-  fs.writeFileSync(tempFile, segment);
-
-  const result = spawnSync('node', [tempFile], {
-    stdio: 'pipe',
-    encoding: 'utf-8',
-    timeout: 60000,
-    cwd: process.cwd() // FIX: execute in cwd
-  });
-
-  if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-
-  if (result.error && result.error.code === 'ETIMEDOUT') {
-    return { error: true, log: "Execution timed out (60s limit)." };
-  }
-
-  return { error: (result.error || result.status !== 0), log: result.stderr || result.stdout };
 }
 
 async function main() {
@@ -193,9 +170,10 @@ async function main() {
   let projectStateSummary = "No active task.";
 
   const systemPromptRouter = 'You are a router. Determine if the user request is a "CHAT" (a question, greeting, or explanation request, etc) or an "ACTION" (such as requires writing code, running commands, or multi-step execution). Respond ONLY with the word "CHAT" or "ACTION".';
-  const systemPromptGenerate = 'You are a code generator. Output only the raw next Node.js code segment without any codeblocks, markdown, formatting, or wrappers. For shell commands or other languages (like Python), use Node.js child_process to execute them directly without creating files or running code in shell. That is to say, create or execute code files unless absolutely needed for the project - such as if the user asks you to make or modify some code. If the project is complete, output only "PROJECT_DONE". Do not include any other text, explanations, thoughts, speech, codeblocks, or markdown. Do not create anything that may make a feedback loop stuck, such as a server, launching GUI apps, or a while true loop without a proper breaking functionality. If you test something to prevent bugs, please execute it for 60 seconds, quit if still open, and read error output - fixing bugs according to said error output. You have basic tool calling access, btw - so don\'t be afraid to use some tool calls!';
+  const systemPromptAgent = 'You are a code generator. Output only the raw next Node.js code segment without any codeblocks, markdown, formatting, or wrappers. For shell commands or other languages (like Python), use Node.js child_process to execute them directly without creating files or running code in shell. That is to say, create or execute code files unless absolutely needed for the project - such as if the user asks you to make or modify some code. If the project is complete, output only "PROJECT_DONE". Do not include any other text, explanations, thoughts, speech, codeblocks, or markdown. Do not create anything that may make a feedback loop stuck, such as a server, launching GUI apps, or a while true loop without a proper breaking functionality. If you test something to prevent bugs, please execute it for 60 seconds, quit if still open, and read error output - fixing bugs according to said error output. You have basic tool calling access, btw - so don\'t be afraid to use some tool calls!';
   const systemPromptCheck = 'You are a completion checker. Respond only with "yes" or "no" to whether the project is complete. No other text, explanations, thoughts, speech, codeblocks, or markdown. You have basic tool calling access, btw - so don\'t be afraid to use some tool calls in case you need to test something! Just remember - to test something: launch it for 60 seconds, close it, check error logs.';
   const projectStateSummarySystem = "You are a project progress summarization bot. You create summaries for projects - showing what you've learned, the errors, and what needs to be done. Use plain text. Output ONLY the new summary, NOTHNG ELSE.";
+
   while (true) {
     let currentTask = initialInput;
 
@@ -231,6 +209,9 @@ async function main() {
 
     let errorLog = '';
 
+    progressLog = '';
+    projectStateSummary = "No active task.";
+
     while (true) {
       const sliceLen = Math.round((Number(contextLength) / 6) / 2);
       const summarizePrompt =
@@ -251,39 +232,56 @@ async function main() {
         `Task: ${currentTask}\nSummary: ${projectStateSummary}\n${errorLog ? `FIX ERROR: ${errorLog}` : "Generate next Node.js segment."}`;
 
       let messages = [
-        { role: 'system', content: systemPromptGenerate },
+        { role: 'system', content: systemPromptAgent },
         { role: 'user', content: fullPrompt }
       ];
 
       let segment = "";
 
+      let iterationLog = '';
+      let toolErrors = [];
+
       while (true) {
         const response = await ollama.chat({ model, messages, tools, options: { num_ctx: contextLength } });
         const message = response.message;
 
+        iterationLog += `\nAssistant: ${message.content || ''}`;
+
         if (message.tool_calls?.length > 0) {
           messages.push(message);
 
+          iterationLog += `\nTool calls: ${JSON.stringify(message.tool_calls)}`;
+
           for (const call of message.tool_calls) {
             let toolResult;
+            const name = call.function.name;
+            const args = call.function.arguments;
 
-            if (NATIVE_TOOL_NAMES.includes(call.function.name)) {
-              toolResult = handleNativeTool(call.function.name, call.function.arguments);
+            if (NATIVE_TOOL_NAMES.includes(name)) {
+              toolResult = handleNativeTool(name, args);
             } else {
-              const target = clients.find(c => c.toolNames.includes(call.function.name));
+              const target = clients.find(c => c.toolNames.includes(name));
               if (target) {
                 const res = await target.client.callTool({
-                  name: call.function.name,
-                  arguments: call.function.arguments
+                  name,
+                  arguments: args
                 });
                 toolResult = res.content.map(c => c.text || JSON.stringify(c)).join('\n');
+              } else {
+                toolResult = 'Tool not found';
               }
             }
+
+            if (toolResult.startsWith('Error') || toolResult === 'Tool error' || toolResult === 'Tool not found') {
+              toolErrors.push(toolResult);
+            }
+
+            iterationLog += `\nTool result for ${name}: ${toolResult}`;
 
             messages.push({
               role: 'tool',
               content: toolResult || "Tool error",
-              name: call.function.name
+              name
             });
           }
 
@@ -294,30 +292,69 @@ async function main() {
         break;
       }
 
-      if (segment.includes('PROJECT_DONE')) break;
+      console.log(`\n--- Executing Action ---\n${iterationLog}`);
 
-      console.log(`\n--- Executing Action ---\n${segment}`);
-      const execResult = executeSegment(segment);
-
-      if (execResult.error) {
-        errorLog = execResult.log;
+      if (toolErrors.length > 0) {
+        errorLog = toolErrors.join('\n');
         console.log(`❌ Error: ${errorLog}`);
       } else {
-        console.log(`✅ Success: ${execResult.log}`);
-        progressLog += `\nCode: ${segment}\nOutput: ${execResult.log}`;
+        console.log(`✅ Success: ${iterationLog}`);
+        progressLog += `\nAction: ${iterationLog}`;
         errorLog = '';
-        await shutdownMCP(clients);
-        process.exit()
+      }
 
-        const checkResponse = await ollama.chat({
-          model,
-          messages: [
-            { role: 'system', content: systemPromptCheck },
-            { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
-          ]
-        });
+      if (segment.includes('PROJECT_DONE')) break;
 
-        if (checkResponse.message.content.toLowerCase().includes('yes')) break;
+      if (toolErrors.length === 0) {
+        let checkMessages = [
+          { role: 'system', content: systemPromptCheck },
+          { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
+        ];
+
+        let checkSegment = '';
+
+        while (true) {
+          const checkResponse = await ollama.chat({ model, messages: checkMessages, tools, options: { num_ctx: contextLength } });
+          const checkMessage = checkResponse.message;
+
+          if (checkMessage.tool_calls?.length > 0) {
+            checkMessages.push(checkMessage);
+
+            for (const call of checkMessage.tool_calls) {
+              let toolResult;
+              const name = call.function.name;
+              const args = call.function.arguments;
+
+              if (NATIVE_TOOL_NAMES.includes(name)) {
+                toolResult = handleNativeTool(name, args);
+              } else {
+                const target = clients.find(c => c.toolNames.includes(name));
+                if (target) {
+                  const res = await target.client.callTool({
+                    name,
+                    arguments: args
+                  });
+                  toolResult = res.content.map(c => c.text || JSON.stringify(c)).join('\n');
+                } else {
+                  toolResult = 'Tool not found';
+                }
+              }
+
+              checkMessages.push({
+                role: 'tool',
+                content: toolResult || "Tool error",
+                name
+              });
+            }
+
+            continue;
+          }
+
+          checkSegment = checkMessage.content.toLowerCase();
+          break;
+        }
+
+        if (checkSegment.includes('yes')) break;
       }
     }
 
@@ -325,7 +362,7 @@ async function main() {
   }
 
   rl.close();
-  await shutdownMCP(clients); // FIX: clean shutdown
+  await shutdownMCP(clients);
   console.log('Session closed.');
 }
 
