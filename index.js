@@ -306,6 +306,7 @@ async function main() {
           break;
       } else {
         console.log(`✅ Good so far...`);
+        console.log(`${projectStateSummary}`);
         goods++;
       }
 
