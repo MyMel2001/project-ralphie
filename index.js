@@ -110,7 +110,7 @@ function parseOptions() {
   let args = process.argv.slice(2);
   let model = 'ministral-3:8b';
   let host = 'http://localhost:11434';
-  let contextLength = 8192; // Reduced default context length for stability
+  let contextLength = 42000;
   let mcpServers = [];
   let i = 0;
 
@@ -332,7 +332,7 @@ async function main() {
     } catch (err) {
       console.error(`Error in processing: ${err.message}`);
       if (err.message.includes('unexpected end of JSON input')) {
-        console.log('This error often occurs if the Ollama server is overloaded, the model does not support the requested context length, or there is a compatibility issue. Try reducing --context-length (default now 8192), ensure Ollama is running with "ollama serve", and verify the model supports tools. Also, check Ollama logs for more details.');
+        console.log('This error may occur if the model does not support tool calling or the Ollama server encountered an internal error. Ensure you are using a model that supports function/tool calling, such as "ollama pull llama3.1:8b" or similar. Verify Ollama version is up to date and check server logs. If the issue persists, try without tools or a different model via --model flag.');
       }
     }
   }
