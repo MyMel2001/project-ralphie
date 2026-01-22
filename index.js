@@ -290,13 +290,47 @@ async function main() {
         progressLog += `\nCode: ${segment}\nOutput: ${toolResult}`;
         errorLog = '';
 
-        const checkResponse = await ollama.chat({
-          model,
-          messages: [
-            { role: 'system', content: systemPromptCheck },
-            { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
-          ]
-        });
+        let checkMessages = [
+          { role: 'system', content: systemPromptCheck },
+          { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
+        ];
+
+        while (true) {
+          const checkResponse = await ollama.chat({ model, messages: checkMessages, tools, options: { num_ctx: contextLength } });
+          const checkMessage = checkResponse.message;
+
+          if (checkMessage.tool_calls?.length > 0) {
+            checkMessages.push(checkMessage);
+
+            for (const call of checkMessage.tool_calls) {
+              let toolResult;
+
+              if (NATIVE_TOOL_NAMES.includes(call.function.name)) {
+                toolResult = handleNativeTool(call.function.name, call.function.arguments);
+              } else {
+                const target = clients.find(c => c.toolNames.includes(call.function.name));
+                if (target) {
+                  const res = await target.client.callTool({
+                    name: call.function.name,
+                    arguments: call.function.arguments
+                  });
+                  toolResult = res.content.map(c => c.text || JSON.stringify(c)).join('\n');
+                }
+              }
+
+              checkMessages.push({
+                role: 'tool',
+                content: toolResult || "Tool error",
+                name: call.function.name
+              });
+            }
+
+            continue;
+          }
+
+          if (checkMessage.content.toLowerCase().includes('yes')) break;
+          break;
+        }
 
         if (checkResponse.message.content.toLowerCase().includes('yes')) break;
       }
