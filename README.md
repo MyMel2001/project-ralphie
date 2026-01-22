@@ -71,12 +71,12 @@ node index.js --model ministral-3:8b --host http://192.168.50.135:11434 --contex
 ### Example with options and tools
 
 ```bash
-node index.js --model ministral-3:8b --host http://192.168.50.135:11434 --context-length 50000 "Calculate the 10th Fibonacci number using Python." --mcp '@modelcontextprotocol/server-everything' --mcp "@modelcontextprotocol/server-filesystem ."
+node index.js --model ministral-3:8b --host http://192.168.50.135:11434 --context-length 50000 "Calculate the 10th Fibonacci number using Python." --mcp '@modelcontextprotocol/server-everything'
 ```
 
 ### Example with options, tools, AND repl
 ```bash
-node index.js --model ministral-3:8b --host http://192.168.50.135:11434 --context-length 50000 --mcp '@modelcontextprotocol/server-everything' --mcp "@modelcontextprotocol/server-filesystem ."
+node index.js --model ministral-3:8b --host http://192.168.50.135:11434 --context-length 50000 --mcp '@modelcontextprotocol/server-everything'
 ```
 
 ### Troubleshooting
