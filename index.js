@@ -108,7 +108,7 @@ const handleNativeTool = (name, args) => {
 
 function parseOptions() {
   let args = process.argv.slice(2);
-  let model = 'ministral-3:8b';
+  let model = 'llama3.1:8b';
   let host = 'http://localhost:11434';
   let contextLength = 42000;
   let mcpServers = [];
@@ -206,7 +206,7 @@ async function main() {
           { role: 'system', content: systemPromptRouter },
           { role: 'user', content: currentTask }
         ],
-        options: { num_ctx: contextLength } // Ensure options are set
+        options: { num_ctx: contextLength }
       });
 
       const isAction = routeResponse.message.content.includes("ACTION");
@@ -255,12 +255,7 @@ async function main() {
         let done = false;
 
         while (true) {
-          const response = await ollama.chat({
-            model,
-            messages,
-            tools,
-            options: { num_ctx: contextLength }
-          });
+          const response = await ollama.chat({ model, messages, tools, options: { num_ctx: contextLength } });
 
           const message = response.message;
 
