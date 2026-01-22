@@ -170,7 +170,7 @@ async function main() {
   let projectStateSummary = "No active task.";
 
   const systemPromptRouter = 'You are a router. Determine if the user request is a "CHAT" (a question, greeting, or explanation request, etc) or an "ACTION" (such as requires writing code, running commands, or multi-step execution). Respond ONLY with the word "CHAT" or "ACTION".';
-  const systemPromptAgent = 'You are a code generator. Output only the raw next Node.js code segment without any codeblocks, markdown, formatting, or wrappers. For shell commands or other languages (like Python), use Node.js child_process to execute them directly without creating files or running code in shell. That is to say, create or execute code files unless absolutely needed for the project - such as if the user asks you to make or modify some code. If the project is complete, output only "PROJECT_DONE". Do not include any other text, explanations, thoughts, speech, codeblocks, or markdown. Do not create anything that may make a feedback loop stuck, such as a server, launching GUI apps, or a while true loop without a proper breaking functionality. If you test something to prevent bugs, please execute it for 60 seconds, quit if still open, and read error output - fixing bugs according to said error output. You have basic tool calling access, btw - so don\'t be afraid to use some tool calls!';
+  const systemPromptAgent = 'You are an action executor. Accomplish the user\'s task by using the available tools. Do not generate or execute code directly; instead, use the provided tools for any file system modifications, command executions, or other actions. For shell commands, use the run_terminal_command tool. For creating or modifying files, use write_file or search_and_replace. You can reason step by step in your response before calling tools. Reason about what to do next, then call tools if needed. If you think the step is complete, output your final thoughts without any special markers. You have basic tool calling access - so don\'t be afraid to use some tool calls!';
   const systemPromptCheck = 'You are a completion checker. Respond only with "yes" or "no" to whether the project is complete. No other text, explanations, thoughts, speech, codeblocks, or markdown. You have basic tool calling access, btw - so don\'t be afraid to use some tool calls in case you need to test something! Just remember - to test something: launch it for 60 seconds, close it, check error logs.';
   const projectStateSummarySystem = "You are a project progress summarization bot. You create summaries for projects - showing what you've learned, the errors, and what needs to be done. Use plain text. Output ONLY the new summary, NOTHNG ELSE.";
 
@@ -229,17 +229,16 @@ async function main() {
       projectStateSummary = summaryResponse.message.content.trim();
 
       const fullPrompt =
-        `Task: ${currentTask}\nSummary: ${projectStateSummary}\n${errorLog ? `FIX ERROR: ${errorLog}` : "Generate next Node.js segment."}`;
+        `Task: ${currentTask}\nSummary: ${projectStateSummary}\n${errorLog ? `FIX ERROR: ${errorLog}` : "Continue with next actions."}`;
 
       let messages = [
         { role: 'system', content: systemPromptAgent },
         { role: 'user', content: fullPrompt }
       ];
 
-      let segment = "";
-
       let iterationLog = '';
       let toolErrors = [];
+      let finalContent = '';
 
       while (true) {
         const response = await ollama.chat({ model, messages, tools, options: { num_ctx: contextLength } });
@@ -288,30 +287,26 @@ async function main() {
           continue;
         }
 
-        segment = message.content.trim();
+        finalContent = message.content.trim();
         break;
       }
 
-      console.log(`\n--- Executing Action ---\n${iterationLog}`);
+      console.log(`\n--- Action Step ---\n${iterationLog}`);
 
       if (toolErrors.length > 0) {
         errorLog = toolErrors.join('\n');
         console.log(`❌ Error: ${errorLog}`);
       } else {
         console.log(`✅ Success: ${iterationLog}`);
-        progressLog += `\nAction: ${iterationLog}`;
+        progressLog += `\nStep: ${iterationLog}`;
         errorLog = '';
       }
-
-      if (segment.includes('PROJECT_DONE')) break;
 
       if (toolErrors.length === 0) {
         let checkMessages = [
           { role: 'system', content: systemPromptCheck },
           { role: 'user', content: `Task: ${currentTask}\nLog: ${progressLog}\nDone?` }
         ];
-
-        let checkSegment = '';
 
         while (true) {
           const checkResponse = await ollama.chat({ model, messages: checkMessages, tools, options: { num_ctx: contextLength } });
@@ -350,11 +345,15 @@ async function main() {
             continue;
           }
 
-          checkSegment = checkMessage.content.toLowerCase();
-          break;
+          if (checkMessage.content.toLowerCase().includes('yes')) {
+            console.log('\nProject complete.');
+            break;
+          } else {
+            break;
+          }
         }
 
-        if (checkSegment.includes('yes')) break;
+        if (checkMessage.content.toLowerCase().includes('yes')) break;
       }
     }
 
